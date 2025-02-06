@@ -23,7 +23,7 @@ Welcome to my Data Science Repository! This collection is a curated set of Jupyt
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/yourusername/data-science-repo.git
+   git clone https://github.com/yourusername/data-science.git
    ```
 
 2. Navigate to the repository folder:
