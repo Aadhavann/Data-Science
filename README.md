@@ -23,20 +23,15 @@ Welcome to my Data Science Repository! This collection is a curated set of Jupyt
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/yourusername/data-science.git
+   git clone https://github.com/aadhavann/data-science.git
    ```
 
 2. Navigate to the repository folder:
    ```bash
-   cd data-science-repo
+   cd data-science
    ```
 
-3. Install the required dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Explore the notebooks:
+3. Explore the notebooks:
    Open the notebooks folder and start with any `.ipynb` file you choose!
 
 ---
