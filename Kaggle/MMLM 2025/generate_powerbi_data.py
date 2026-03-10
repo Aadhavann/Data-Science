@@ -90,6 +90,15 @@ w_teams = pd.read_csv(DATA_PATH + "WTeams.csv")[["TeamID", "TeamName"]]
 w_teams["Gender"] = "W"
 team_names = pd.concat([m_teams, w_teams], ignore_index=True)
 
+# Conference affiliations (men + women share Conferences.csv)
+conferences = pd.read_csv(DATA_PATH + "Conferences.csv")[["ConfAbbrev", "Description"]].rename(
+    columns={"Description": "ConferenceName"}
+)
+m_conf = pd.read_csv(DATA_PATH + "MTeamConferences.csv")
+w_conf = pd.read_csv(DATA_PATH + "WTeamConferences.csv")
+team_conferences = pd.concat([m_conf, w_conf], ignore_index=True)
+team_conferences = team_conferences.merge(conferences, on="ConfAbbrev", how="left")
+
 
 # ---------------------------------------------------------------------------
 # 2. Symmetrise results into T1/T2 framing
@@ -123,6 +132,28 @@ def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
 
 regular_data = prepare_data(regular_results_raw)
 tourney_data = prepare_data(tourney_results_raw)
+
+
+# ---------------------------------------------------------------------------
+# Tournament round labels derived from DayNum (men's schedule per docs;
+# women's scheduling varies but follows the same approximate structure).
+# ---------------------------------------------------------------------------
+# (lo, hi, label, sort_order)
+_ROUND_BINS = [
+    (134, 135, "Play-In",       0),
+    (136, 137, "Round of 64",   1),
+    (138, 139, "Round of 32",   2),
+    (143, 144, "Sweet Sixteen", 3),
+    (145, 146, "Elite Eight",   4),
+    (152, 152, "Final Four",    5),
+    (154, 154, "Championship",  6),
+]
+
+def daynum_to_round(day: int):
+    for lo, hi, label, order in _ROUND_BINS:
+        if lo <= day <= hi:
+            return label, order
+    return "Other", 99
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +289,23 @@ td["Upset"]        = np.where(
     1, 0
 )
 
+# Tournament round (derived from DayNum)
+rounds = td["DayNum"].apply(daynum_to_round)
+td["TourneyRound"]      = rounds.apply(lambda x: x[0])
+td["TourneyRoundOrder"] = rounds.apply(lambda x: x[1])
+
+# Conference per team per season
+conf_T1 = (
+    team_conferences[["Season", "TeamID", "ConfAbbrev", "ConferenceName"]]
+    .rename(columns={"TeamID": "T1_TeamID", "ConfAbbrev": "T1_ConfAbbrev", "ConferenceName": "T1_Conference"})
+)
+conf_T2 = (
+    team_conferences[["Season", "TeamID", "ConfAbbrev", "ConferenceName"]]
+    .rename(columns={"TeamID": "T2_TeamID", "ConfAbbrev": "T2_ConfAbbrev", "ConferenceName": "T2_Conference"})
+)
+td = td.merge(conf_T1, on=["Season", "T1_TeamID"], how="left")
+td = td.merge(conf_T2, on=["Season", "T2_TeamID"], how="left")
+
 
 # ---------------------------------------------------------------------------
 # 8. Write CSVs
@@ -266,9 +314,9 @@ print("Writing CSVs …")
 
 # --- matchup_facts.csv ---
 matchup_cols = [
-    "Season", "DayNum",
-    "T1_TeamID", "T1_Score", "T1_seed",
-    "T2_TeamID", "T2_Score", "T2_seed",
+    "Season", "DayNum", "TourneyRound", "TourneyRoundOrder",
+    "T1_TeamID", "T1_Score", "T1_seed", "T1_ConfAbbrev", "T1_Conference",
+    "T2_TeamID", "T2_Score", "T2_seed", "T2_ConfAbbrev", "T2_Conference",
     "Seed_diff", "PointDiff", "Winner", "Upset",
     "T1_quality", "T2_quality", "T1_AvgRank", "T2_AvgRank", "AvgRank_diff",
     "IsMensTeam",
@@ -291,6 +339,10 @@ team_season_stats = season_stats.merge(
 )
 team_season_stats = team_season_stats.merge(avg_ranks, on=["TeamID", "Season"], how="left")
 team_season_stats = team_season_stats.merge(team_names, on="TeamID", how="left")
+team_season_stats = team_season_stats.merge(
+    team_conferences[["Season", "TeamID", "ConfAbbrev", "ConferenceName"]],
+    on=["Season", "TeamID"], how="left"
+)
 team_season_stats.to_csv(os.path.join(OUT_DIR, "team_season_stats.csv"), index=False)
 print(f"  team_season_stats.csv    : {len(team_season_stats):,} rows")
 
@@ -332,6 +384,19 @@ if args.submission_path:
         on="T2_TeamID", how="left",
     )
 
+    # Conference for 2025 teams
+    conf_2025 = team_conferences[team_conferences.Season == 2025][
+        ["TeamID", "ConfAbbrev", "ConferenceName"]
+    ]
+    sub = sub.merge(
+        conf_2025.rename(columns={"TeamID": "T1_TeamID", "ConfAbbrev": "T1_ConfAbbrev", "ConferenceName": "T1_Conference"}),
+        on="T1_TeamID", how="left",
+    )
+    sub = sub.merge(
+        conf_2025.rename(columns={"TeamID": "T2_TeamID", "ConfAbbrev": "T2_ConfAbbrev", "ConferenceName": "T2_Conference"}),
+        on="T2_TeamID", how="left",
+    )
+
     sub["Seed_diff"]        = sub["T1_seed"] - sub["T2_seed"]
     sub["Gender"]           = sub["T1_Gender"]
     sub["FavouriteWinProb"] = sub[["T1_WinProb", "T2_WinProb"]].max(axis=1)
@@ -345,8 +410,10 @@ if args.submission_path:
 
     out_cols = [
         "ID", "Season",
-        "T1_TeamID", "T1_TeamName", "T1_Gender", "T1_Seed", "T1_seed", "T1_WinProb",
-        "T2_TeamID", "T2_TeamName", "T2_Gender", "T2_Seed", "T2_seed", "T2_WinProb",
+        "T1_TeamID", "T1_TeamName", "T1_Gender", "T1_Seed", "T1_seed",
+        "T1_ConfAbbrev", "T1_Conference", "T1_WinProb",
+        "T2_TeamID", "T2_TeamName", "T2_Gender", "T2_Seed", "T2_seed",
+        "T2_ConfAbbrev", "T2_Conference", "T2_WinProb",
         "Seed_diff", "Favourite", "Underdog", "FavouriteWinProb",
         "MatchupLabel", "Upset_prob", "Gender",
     ]
