@@ -817,13 +817,16 @@ VERSION = json.dumps({"version": "5.48"})
 
 
 def write_pbit():
+    def _utf16(s):
+        return s.encode("utf-16-le")
+
     with zipfile.ZipFile(PBIT_PATH, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("[Content_Types].xml", CONTENT_TYPES)
-        zf.writestr("DataModelSchema",    json.dumps(DATA_MODEL, indent=2))
-        zf.writestr("DiagramLayout",      DIAGRAM_LAYOUT)
-        zf.writestr("Report/Layout",      json.dumps(REPORT_LAYOUT, indent=2))
-        zf.writestr("Settings",           SETTINGS)
-        zf.writestr("Version",            VERSION)
+        zf.writestr("DataModelSchema",    _utf16(json.dumps(DATA_MODEL, indent=2)))
+        zf.writestr("DiagramLayout",      _utf16(DIAGRAM_LAYOUT))
+        zf.writestr("Report/Layout",      _utf16(json.dumps(REPORT_LAYOUT, indent=2)))
+        zf.writestr("Settings",           _utf16(SETTINGS))
+        zf.writestr("Version",            _utf16(VERSION))
     print(f"Created: {PBIT_PATH}")
 
 
