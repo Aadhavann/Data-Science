@@ -1,18 +1,22 @@
 """
 generate_powerbi_data.py
 ------------------------
-Reads the March Machine Learning Mania 2025 Kaggle data and writes four CSV files
+Reads the March Machine Learning Mania 2025 Kaggle data and writes five CSV files
 that are imported directly into the Power BI Team Matchups dashboard:
 
     powerbi_data/
-        matchup_facts.csv      – one row per tourney game (with win-prob from the model)
-        team_season_stats.csv  – season-average box-score stats per team per season
-        team_names.csv         – TeamID → TeamName + gender lookup
-        seeds.csv              – Season / TeamID / numeric seed
+        matchup_facts.csv       – one row per tourney game (with win-prob from the model)
+        team_season_stats.csv   – season-average box-score stats per team per season
+        team_names.csv          – TeamID → TeamName + gender lookup
+        seeds.csv               – Season / TeamID / numeric seed
+        predicted_matchups.csv  – every possible 2025 pairing with submitted win-prob
+                                  (requires --submission_path)
 
 Usage
 -----
-    python generate_powerbi_data.py --data_path /path/to/march-machine-learning-mania-2025
+    python generate_powerbi_data.py \\
+        --data_path  /path/to/march-machine-learning-mania-2025 \\
+        --submission_path /path/to/submission.csv
 
 The script mirrors the feature-engineering in mmlm-2025.ipynb so the win
 probabilities it outputs are consistent with what was submitted to Kaggle.
@@ -40,6 +44,11 @@ parser.add_argument(
     "--out_dir",
     default=os.path.join(os.path.dirname(__file__), "powerbi_data"),
     help="Output folder for the Power BI CSVs",
+)
+parser.add_argument(
+    "--submission_path",
+    default=None,
+    help="Path to your Kaggle submission CSV (ID, Pred) — enables predicted_matchups.csv",
 )
 args = parser.parse_args()
 
@@ -391,4 +400,63 @@ seeds_out = seeds_raw.merge(team_names, on="TeamID", how="left")
 seeds_out.to_csv(os.path.join(OUT_DIR, "seeds.csv"), index=False)
 print(f"  seeds.csv                : {len(seeds_out):,} rows")
 
-print("\nDone. Import the four CSV files into Power BI using the template.")
+# --- predicted_matchups.csv (from submission file) ---
+if args.submission_path:
+    sub = pd.read_csv(args.submission_path)
+    # ID format: Season_T1TeamID_T2TeamID
+    sub[["Season", "T1_TeamID", "T2_TeamID"]] = (
+        sub["ID"].str.split("_", expand=True).iloc[:, :3].astype(int).values
+    )
+    sub = sub.rename(columns={"Pred": "T1_WinProb"})
+    sub["T2_WinProb"] = 1 - sub["T1_WinProb"]
+
+    # Attach team names
+    sub = sub.merge(
+        team_names.rename(columns={"TeamID": "T1_TeamID", "TeamName": "T1_TeamName", "Gender": "T1_Gender"}),
+        on="T1_TeamID", how="left",
+    )
+    sub = sub.merge(
+        team_names.rename(columns={"TeamID": "T2_TeamID", "TeamName": "T2_TeamName", "Gender": "T2_Gender"}),
+        on="T2_TeamID", how="left",
+    )
+
+    # Attach seeds for 2025
+    seeds_2025 = seeds_df[seeds_df.Season == 2025][["TeamID", "SeedNum", "Seed"]].copy()
+    sub = sub.merge(
+        seeds_2025.rename(columns={"TeamID": "T1_TeamID", "SeedNum": "T1_seed", "Seed": "T1_Seed"}),
+        on="T1_TeamID", how="left",
+    )
+    sub = sub.merge(
+        seeds_2025.rename(columns={"TeamID": "T2_TeamID", "SeedNum": "T2_seed", "Seed": "T2_Seed"}),
+        on="T2_TeamID", how="left",
+    )
+
+    sub["Seed_diff"] = sub["T1_seed"] - sub["T2_seed"]
+    sub["Gender"] = sub["T1_Gender"]
+    sub["FavouriteWinProb"] = sub[["T1_WinProb", "T2_WinProb"]].max(axis=1)
+    sub["Favourite"] = sub.apply(
+        lambda r: r["T1_TeamName"] if r["T1_WinProb"] >= 0.5 else r["T2_TeamName"], axis=1
+    )
+    sub["Underdog"] = sub.apply(
+        lambda r: r["T2_TeamName"] if r["T1_WinProb"] >= 0.5 else r["T1_TeamName"], axis=1
+    )
+    sub["MatchupLabel"] = sub["T1_TeamName"] + " vs " + sub["T2_TeamName"]
+    sub["Upset_prob"] = sub.apply(
+        lambda r: r["T2_WinProb"] if r["T1_seed"] < r["T2_seed"] else r["T1_WinProb"], axis=1
+    ).where(sub["Seed_diff"].notna(), other=None)
+
+    out_cols = [
+        "ID", "Season",
+        "T1_TeamID", "T1_TeamName", "T1_Gender", "T1_Seed", "T1_seed", "T1_WinProb",
+        "T2_TeamID", "T2_TeamName", "T2_Gender", "T2_Seed", "T2_seed", "T2_WinProb",
+        "Seed_diff", "Favourite", "Underdog", "FavouriteWinProb",
+        "MatchupLabel", "Upset_prob", "Gender",
+    ]
+    sub[[c for c in out_cols if c in sub.columns]].to_csv(
+        os.path.join(OUT_DIR, "predicted_matchups.csv"), index=False
+    )
+    print(f"  predicted_matchups.csv   : {len(sub):,} rows  ({sub['T1_TeamID'].nunique()} teams × all pairings)")
+else:
+    print("  predicted_matchups.csv   : skipped (pass --submission_path to include)")
+
+print("\nDone. Import the CSV files into Power BI using the template.")

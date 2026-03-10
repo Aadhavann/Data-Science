@@ -3,14 +3,18 @@ create_powerbi_template.py
 --------------------------
 Generates  TeamMatchupsDashboard.pbit  – a Power BI template file that
 contains:
-  • Data model (4 tables, relationships, DAX measures)
-  • Report layout (2 pages: "Team Matchup" and "Season Overview")
+  • Data model (5 tables, relationships, DAX measures)
+  • Report layout (3 pages):
+      1. Team Matchup      – historical games filtered by season / team
+      2. Season Overview   – upset rates, seed win %, quality scatter
+      3. Matchup Explorer  – pick any two 2025 teams, see predicted win
+                             probability from the submitted model
 
 Run AFTER generate_powerbi_data.py so the powerbi_data/ CSVs exist,
 then open TeamMatchupsDashboard.pbit in Power BI Desktop.
 
 Power BI will prompt you to set the data-source path to the folder that
-contains the four CSV files.
+contains the five CSV files.
 """
 
 import json
@@ -273,6 +277,82 @@ DATA_MODEL = {
                     }
                 ],
             },
+            # -------- predicted_matchups (submission CSV – all pairings) ----
+            {
+                "name": "predicted_matchups",
+                "columns": [
+                    _col("ID",               "string"),
+                    _col("Season",           "int64"),
+                    _col("T1_TeamID",        "int64"),
+                    _col("T1_TeamName",      "string"),
+                    _col("T1_Gender",        "string"),
+                    _col("T1_Seed",          "string"),
+                    _col("T1_seed",          "double"),
+                    _col("T1_WinProb",       "double"),
+                    _col("T2_TeamID",        "int64"),
+                    _col("T2_TeamName",      "string"),
+                    _col("T2_Gender",        "string"),
+                    _col("T2_Seed",          "string"),
+                    _col("T2_seed",          "double"),
+                    _col("T2_WinProb",       "double"),
+                    _col("Seed_diff",        "double"),
+                    _col("Favourite",        "string"),
+                    _col("Underdog",         "string"),
+                    _col("FavouriteWinProb", "double"),
+                    _col("MatchupLabel",     "string"),
+                    _col("Upset_prob",       "double"),
+                    _col("Gender",           "string"),
+                ],
+                "measures": [
+                    _measure(
+                        "Selected T1 Win Prob",
+                        "AVERAGE(predicted_matchups[T1_WinProb])",
+                        fmt="#0.0%",
+                    ),
+                    _measure(
+                        "Selected T2 Win Prob",
+                        "AVERAGE(predicted_matchups[T2_WinProb])",
+                        fmt="#0.0%",
+                    ),
+                    _measure(
+                        "Avg Upset Probability",
+                        "AVERAGE(predicted_matchups[Upset_prob])",
+                        fmt="#0.0%",
+                    ),
+                    _measure(
+                        "Matchup Count",
+                        "COUNTROWS(predicted_matchups)",
+                        fmt="#,0",
+                    ),
+                    _measure(
+                        "Favourite Avg Win Prob",
+                        "AVERAGE(predicted_matchups[FavouriteWinProb])",
+                        fmt="#0.0%",
+                    ),
+                ],
+                "partitions": [
+                    {
+                        "name": "predicted_matchups",
+                        "source": {
+                            "type": "m",
+                            "expression": [
+                                "let",
+                                '    Source = Csv.Document(File.Contents(_DataFolder & "predicted_matchups.csv"),[Delimiter=",", Encoding=65001, QuoteStyle=QuoteStyle.None]),',
+                                "    #\"Promoted Headers\" = Table.PromoteHeaders(Source, [PromoteAllScalars=true]),",
+                                "    #\"Changed Types\" = Table.TransformColumnTypes(#\"Promoted Headers\",{",
+                                '        {"Season", Int64.Type}, {"T1_TeamID", Int64.Type}, {"T2_TeamID", Int64.Type},',
+                                '        {"T1_seed", type number}, {"T2_seed", type number},',
+                                '        {"T1_WinProb", type number}, {"T2_WinProb", type number},',
+                                '        {"Seed_diff", type number}, {"FavouriteWinProb", type number},',
+                                '        {"Upset_prob", type number}',
+                                "    })",
+                                "in",
+                                "    #\"Changed Types\"",
+                            ],
+                        },
+                    }
+                ],
+            },
             # -------- _Parameters (data folder path) -----------------------
             {
                 "name": "_Parameters",
@@ -317,6 +397,14 @@ DATA_MODEL = {
                 "fromTable": "matchup_facts",
                 "fromColumn": "T1_TeamID",
                 "toTable": "seeds",
+                "toColumn": "TeamID",
+                "crossFilteringBehavior": "oneDirection",
+            },
+            {
+                "name": "predicted_T1_team_names",
+                "fromTable": "predicted_matchups",
+                "fromColumn": "T1_TeamID",
+                "toTable": "team_names",
                 "toColumn": "TeamID",
                 "crossFilteringBehavior": "oneDirection",
             },
@@ -599,6 +687,55 @@ page2_visuals = [
     ),
 ]
 
+# ---- Page 3: Matchup Explorer (predicted_matchups) -----------------------
+# The submission CSV has every possible 2025 pairing, so slicers here let
+# the user pick any Team 1 + Team 2 and see the model's predicted probability.
+page3_visuals = [
+    # Slicers
+    _slicer(10,  10, 220, 50,  "predicted_matchups", "T1_Gender",   "Gender",  "horizontal", "slicer_Gender3"),
+    _slicer(10,  70, 220, 280, "predicted_matchups", "T1_TeamName", "Team 1",  "vertical",   "slicer_T1_pred"),
+    _slicer(10, 360, 220, 280, "predicted_matchups", "T2_TeamName", "Team 2",  "vertical",   "slicer_T2_pred"),
+    # Win probability cards (the headline numbers)
+    _card(240,  10, 240, 100, "predicted_matchups", "Selected T1 Win Prob",  "Team 1 Win Probability"),
+    _card(490,  10, 240, 100, "predicted_matchups", "Selected T2 Win Prob",  "Team 2 Win Probability"),
+    _card(740,  10, 240, 100, "predicted_matchups", "Avg Upset Probability", "Upset Probability"),
+    _card(990,  10, 270, 100, "predicted_matchups", "Favourite Avg Win Prob","Favourite Win Prob"),
+    # Full matchup table (all pairings matching current filter)
+    _table_visual(
+        240, 120, 1020, 240,
+        "tbl_pred_matchups",
+        "All Predicted Matchups (filter by Team 1 & Team 2 slicers)",
+        [
+            ("predicted_matchups", "T1_Seed",          False),
+            ("predicted_matchups", "T1_TeamName",       False),
+            ("predicted_matchups", "T1_WinProb",        False),
+            ("predicted_matchups", "T2_WinProb",        False),
+            ("predicted_matchups", "T2_TeamName",       False),
+            ("predicted_matchups", "T2_Seed",           False),
+            ("predicted_matchups", "Favourite",         False),
+            ("predicted_matchups", "FavouriteWinProb",  False),
+            ("predicted_matchups", "Upset_prob",        False),
+            ("predicted_matchups", "MatchupLabel",      False),
+        ],
+    ),
+    # Win probability heatmap proxy: bar chart of T1 win prob by opponent
+    _clustered_bar(
+        240, 370, 510, 320,
+        "bar_t1_vs_all",
+        "Team 1 Win Probability vs. Every Opponent",
+        "predicted_matchups", "T2_TeamName",
+        "predicted_matchups", ["Selected T1 Win Prob"],
+    ),
+    # Upset probability ranked bar
+    _clustered_bar(
+        760, 370, 500, 320,
+        "bar_upset_by_seed",
+        "Upset Probability by Seed Matchup (T1 seed vs T2 seed)",
+        "predicted_matchups", "T1_seed",
+        "predicted_matchups", ["Avg Upset Probability"],
+    ),
+]
+
 REPORT_LAYOUT = {
     "id": 0,
     "resourcePackages": [],
@@ -619,6 +756,15 @@ REPORT_LAYOUT = {
             "width": CANVAS_W,
             "height": CANVAS_H,
             "visualContainers": page2_visuals,
+            "config": json.dumps({"defaultDrillFilterOtherVisuals": True}),
+        },
+        {
+            "id": 2,
+            "name": "ReportSection3",
+            "displayName": "Matchup Explorer",
+            "width": CANVAS_W,
+            "height": CANVAS_H,
+            "visualContainers": page3_visuals,
             "config": json.dumps({"defaultDrillFilterOtherVisuals": True}),
         },
     ],
@@ -646,10 +792,11 @@ CONTENT_TYPES = """<?xml version="1.0" encoding="utf-8"?>
 DIAGRAM_LAYOUT = json.dumps({
     "version": 2,
     "tables": [
-        {"id": 0, "name": "matchup_facts",      "x": 0,   "y": 0,   "width": 220, "height": 300},
-        {"id": 1, "name": "team_season_stats",  "x": 260, "y": 0,   "width": 220, "height": 320},
-        {"id": 2, "name": "team_names",         "x": 0,   "y": 320, "width": 220, "height": 100},
-        {"id": 3, "name": "seeds",              "x": 260, "y": 340, "width": 220, "height": 130},
+        {"id": 0, "name": "matchup_facts",       "x": 0,   "y": 0,   "width": 220, "height": 300},
+        {"id": 1, "name": "team_season_stats",   "x": 260, "y": 0,   "width": 220, "height": 320},
+        {"id": 2, "name": "team_names",          "x": 0,   "y": 320, "width": 220, "height": 100},
+        {"id": 3, "name": "seeds",               "x": 260, "y": 340, "width": 220, "height": 130},
+        {"id": 4, "name": "predicted_matchups",  "x": 520, "y": 0,   "width": 220, "height": 340},
     ],
 })
 
@@ -682,9 +829,12 @@ if __name__ == "__main__":
         f"     powerbi_data/ folder (e.g. {OUT_DIR}/).\n"
         "  4. Click Load – Power BI will import the CSVs and render the dashboard.\n"
         "\nDashboard pages:\n"
-        "  • Team Matchup   – filter by Season / Team 1 / Team 2;\n"
-        "                     see win probability, box-score comparison,\n"
-        "                     and every historical meeting.\n"
-        "  • Season Overview – upset rates, seed win %, quality scatter,\n"
-        "                      top-team win % bar, and ranking table.\n"
+        "  • Team Matchup      – filter by Season / Team 1 / Team 2;\n"
+        "                        see win probability, box-score comparison,\n"
+        "                        and every historical meeting.\n"
+        "  • Season Overview   – upset rates, seed win %, quality scatter,\n"
+        "                        top-team win % bar, and ranking table.\n"
+        "  • Matchup Explorer  – pick any two 2025 tournament teams and see\n"
+        "                        the submitted model's predicted win probability\n"
+        "                        for every possible pairing.\n"
     )
