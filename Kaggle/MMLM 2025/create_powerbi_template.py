@@ -76,16 +76,6 @@ DATA_MODEL = {
                 ],
                 "measures": [
                     _measure(
-                        "T1 Win %",
-                        "AVERAGE(matchup_facts[T1_WinProb])",
-                        fmt="#0.0%",
-                    ),
-                    _measure(
-                        "T2 Win %",
-                        "AVERAGE(matchup_facts[T2_WinProb])",
-                        fmt="#0.0%",
-                    ),
-                    _measure(
                         "Avg Point Margin",
                         "AVERAGEX(matchup_facts, matchup_facts[T1_Score] - matchup_facts[T2_Score])",
                         fmt="+0.0;-0.0;0.0",
@@ -596,11 +586,11 @@ page1_visuals = [
     _slicer(10, 80,  200, 280, "matchup_facts", "T1_TeamName", "Team 1",  "vertical",   "slicer_T1"),
     _slicer(10, 370, 200, 280, "matchup_facts", "T2_TeamName", "Team 2",  "vertical",   "slicer_T2"),
     # KPI cards (top row)
-    _card(220, 10, 200, 80, "matchup_facts", "T1 Win %",       "Team 1 Win Probability"),
-    _card(430, 10, 200, 80, "matchup_facts", "T2 Win %",       "Team 2 Win Probability"),
+    _card(220, 10, 200, 80, "matchup_facts", "T1 Win Rate",     "Team 1 Actual Win Rate"),
+    _card(430, 10, 200, 80, "matchup_facts", "Total Games",     "Total Tournament Games"),
     _card(640, 10, 200, 80, "matchup_facts", "Avg Point Margin","Avg Point Margin (T1−T2)"),
-    _card(850, 10, 200, 80, "matchup_facts", "Total Games",    "Total Tournament Games"),
-    _card(1060,10, 200, 80, "matchup_facts", "Upset Rate",     "Upset Rate"),
+    _card(850, 10, 200, 80, "matchup_facts", "Upset Rate",      "Upset Rate"),
+    _card(1060,10, 200, 80, "matchup_facts", "T1 Actual Wins",  "T1 Wins"),
     # Stats comparison bar chart
     _clustered_bar(
         220, 100, 640, 280,
@@ -611,9 +601,9 @@ page1_visuals = [
     # Win probability scatter: seed vs quality
     _scatter(870, 100, 390, 280,
         "scatter_seed_quality",
-        "Seed vs GLM Quality (bubble = win prob)",
+        "Seed vs GLM Quality",
         "matchup_facts", "T1_seed",
-        "matchup_facts", "T1 Win %",
+        "matchup_facts", "T1 Win Rate",
         "matchup_facts", "T1_TeamName",
     ),
     # Historical matchups table
@@ -650,15 +640,15 @@ page2_visuals = [
     # Win % by seed
     _clustered_bar(
         730, 10, 530, 260,
-        "bar_win_seed", "T1 Win % by T1 Seed Number",
+        "bar_win_seed", "Historical Win Rate by Seed",
         "matchup_facts", "T1_seed",
-        "matchup_facts", ["T1 Win %"],
+        "matchup_facts", ["T1 Win Rate"],
     ),
     # Quality comparison scatter
     _scatter(220, 280, 530, 260,
-        "scatter_quality", "GLM Quality: T1 vs T2",
+        "scatter_quality", "GLM Quality vs Actual Win Rate",
         "matchup_facts", "T1_quality",
-        "matchup_facts", "T2 Win %",
+        "matchup_facts", "T1 Win Rate",
         "matchup_facts", "Season",
     ),
     # Avg Win% by team (top performers)
