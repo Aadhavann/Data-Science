@@ -813,7 +813,7 @@ SETTINGS = json.dumps({
     "version": "5.48",
 })
 
-VERSION = "3.0"
+VERSION = "5.0"
 
 
 def write_pbit():
